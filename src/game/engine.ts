@@ -705,17 +705,6 @@ export const requestInfluenceLoss = (
   const player = getPlayer(gameState, playerId);
   if (!player) return gameState;
 
-  const liveCards = player.cards.filter((card) => !card.revealed);
-  if (liveCards.length === 0) {
-    return continueAfterInfluenceLoss(eliminatePlayerIfNeeded(gameState, playerId), {
-      id: makeId("influence"),
-      playerId,
-      reason,
-      prompt: `${player.name} must reveal one card.`,
-      afterResolve
-    });
-  }
-
   const pendingInfluenceLoss: PendingInfluenceLoss = {
     id: makeId("influence"),
     playerId,
@@ -723,6 +712,27 @@ export const requestInfluenceLoss = (
     prompt: `${player.name} must reveal one card.`,
     afterResolve
   };
+
+  const liveCards = player.cards.filter((card) => !card.revealed);
+  if (liveCards.length === 0) {
+    return continueAfterInfluenceLoss(eliminatePlayerIfNeeded(gameState, playerId), pendingInfluenceLoss);
+  }
+
+  if (liveCards.length === 1) {
+    const cardToReveal = liveCards[0];
+    let next = updatePlayer(gameState, playerId, (current) => ({
+      ...current,
+      cards: current.cards.map((card) => (card.id === cardToReveal.id ? { ...card, revealed: true } : card))
+    }));
+
+    next = addLog(next, `${player.name} revealed ${cardToReveal.type} and lost one influence.`);
+    next = eliminatePlayerIfNeeded(next, playerId);
+    next = checkWinner(next);
+
+    if (next.phase === "gameOver") return next;
+
+    return continueAfterInfluenceLoss(next, pendingInfluenceLoss);
+  }
 
   return {
     ...gameState,
