@@ -26,3 +26,33 @@ select,
 input {
   font: inherit;
 }
+
+@keyframes coup-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.45) rotate(-8deg);
+  }
+
+  18% {
+    opacity: 1;
+    transform: scale(1.18) rotate(2deg);
+  }
+
+  34% {
+    transform: scale(1) rotate(0deg);
+  }
+
+  78% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.35) rotate(0deg);
+  }
+}
+
+.coup-flash {
+  animation: coup-pop 1.7s ease-out both;
+}

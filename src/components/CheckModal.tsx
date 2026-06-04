@@ -3,7 +3,7 @@ import type { GameState, PlayerId } from "@/game/types";
 type CheckModalProps = {
   gameState: GameState;
   onCoup: (checkerId?: PlayerId) => void;
-  onContinue: (playerId: PlayerId) => void;
+  onContinue: (playerId: PlayerId) => void | Promise<void>;
   currentPlayerId?: PlayerId;
   onlineMode?: boolean;
 };
@@ -21,8 +21,20 @@ export function CheckModal({ gameState, onCoup, onContinue, currentPlayerId, onl
   );
   const currentPlayerCanRespond = Boolean(currentPlayerId && checkers.some((player) => player.id === currentPlayerId));
   const currentPlayerPassed = Boolean(currentPlayerId && passedPlayerIds.includes(currentPlayerId));
+  const continuedPlayers = checkers.filter((player) => passedPlayerIds.includes(player.id));
+  const waitingPlayers = checkers.filter((player) => !passedPlayerIds.includes(player.id));
   const claimant = gameState.players.find((player) => player.id === pending.claimantId);
-  const claimText = `${claimant?.name ?? "Player"} claims ${pending.claimedCard}`.toUpperCase();
+  const target = pending.targetId ? gameState.players.find((player) => player.id === pending.targetId) : undefined;
+  const showTarget = Boolean(
+    target &&
+      claimant &&
+      target.id !== claimant.id &&
+      (pending.claimedCard === "K" || pending.claimedCard === "J")
+  );
+  const claimText = `${claimant?.name ?? "Player"} claimed ${pending.claimedCard}${
+    showTarget ? ` on ${target?.name}` : ""
+  }`.toUpperCase();
+  const formatNames = (players: typeof checkers) => players.map((player) => player.name).join(", ") || "None";
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/45 p-3">
@@ -35,9 +47,23 @@ export function CheckModal({ gameState, onCoup, onContinue, currentPlayerId, onl
           <div className="rounded-full bg-slate-100 px-3 py-1 text-sm font-bold">Time: {pending.timeRemaining}</div>
         </div>
 
+        <div className="mt-4 rounded-lg bg-slate-100 p-3 text-xs font-bold text-slate-600">
+          <p>
+            <span className="font-black uppercase text-slate-500">Continued:</span> {formatNames(continuedPlayers)}
+          </p>
+          <p className="mt-1">
+            <span className="font-black uppercase text-slate-500">Waiting for:</span> {formatNames(waitingPlayers)}
+          </p>
+          {currentPlayerPassed ? (
+            <p className="mt-2 rounded-md bg-white px-2 py-1 font-black text-slate-700">
+              You continued. Waiting for other players...
+            </p>
+          ) : null}
+        </div>
+
         {onlineMode ? (
           <div className="mt-4 grid gap-2">
-            {currentPlayerCanRespond ? (
+            {currentPlayerCanRespond && !currentPlayerPassed ? (
               <>
                 <button
                   type="button"
@@ -55,7 +81,7 @@ export function CheckModal({ gameState, onCoup, onContinue, currentPlayerId, onl
                   {currentPlayerPassed ? "Continued" : "Continue"}
                 </button>
               </>
-            ) : (
+            ) : currentPlayerPassed ? null : (
               <p className="rounded-lg bg-slate-100 p-3 text-sm font-bold text-slate-600">Waiting for COUP window...</p>
             )}
           </div>

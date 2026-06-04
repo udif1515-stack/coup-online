@@ -406,8 +406,13 @@ export const resolveCheck = (gameState: GameState, checkerId?: PlayerId): GameSt
   const checker = getPlayer(gameState, checkerId);
   if (!checker) return gameState;
 
-  let next = addLog(gameState, `${checker.name} used COUP on ${claimant.name}'s ${pending.claimedCard} claim.`);
   const realCard = claimant.cards.find((card) => !card.revealed && card.type === pending.claimedCard);
+  let next = addCoupFlash(
+    addLog(gameState, `${checker.name} used COUP on ${claimant.name}'s ${pending.claimedCard} claim.`),
+    checker.id,
+    claimant.id,
+    realCard ? "failed" : "success"
+  );
 
   if (realCard) {
     next = revealAndReplaceClaimedCard(next, claimant.id, realCard);
@@ -604,58 +609,6 @@ export const completeAmbassadorExchange = (
   };
 
   return nextTurn(addLog(next, `${player.name} exchanged one card with A.`));
-};
-
-export const selectAmbassadorExchangeOldCard = (
-  gameState: GameState,
-  playerId: PlayerId,
-  oldCardId: string
-): GameState => {
-  if (gameState.isPaused) return gameState;
-
-  const exchange = gameState.ambassadorExchange;
-  const player = getPlayer(gameState, playerId);
-
-  if (!exchange || exchange.playerId !== playerId || !player || gameState.phase !== "ambassadorExchange") {
-    return gameState;
-  }
-
-  const oldCard = player.cards.find((card) => card.id === oldCardId && !card.revealed);
-  if (!oldCard) return gameState;
-
-  return {
-    ...gameState,
-    ambassadorExchange: {
-      ...exchange,
-      selectedOldCardId: oldCardId,
-      selectedOfferedCardId: undefined
-    }
-  };
-};
-
-export const selectAmbassadorExchangeOfferedCard = (
-  gameState: GameState,
-  playerId: PlayerId,
-  offeredCardId: string
-): GameState => {
-  if (gameState.isPaused) return gameState;
-
-  const exchange = gameState.ambassadorExchange;
-
-  if (!exchange || exchange.playerId !== playerId || !exchange.selectedOldCardId || gameState.phase !== "ambassadorExchange") {
-    return gameState;
-  }
-
-  const offeredCard = exchange.offeredCards.find((card) => card.id === offeredCardId);
-  if (!offeredCard) return gameState;
-
-  return {
-    ...gameState,
-    ambassadorExchange: {
-      ...exchange,
-      selectedOfferedCardId: offeredCardId
-    }
-  };
 };
 
 export const cancelTargetSelection = (gameState: GameState): GameState =>
@@ -1124,6 +1077,27 @@ const addActionBubble = (gameState: GameState, playerId: PlayerId, label: string
     expiresAt: Date.now() + 1800
   }
 });
+
+const addCoupFlash = (
+  gameState: GameState,
+  checkerId: PlayerId,
+  claimantId: PlayerId,
+  result: "success" | "failed"
+): GameState => {
+  const now = Date.now();
+
+  return {
+    ...gameState,
+    coupFlash: {
+      id: makeId("coup-flash"),
+      checkerId,
+      claimantId,
+      result,
+      resultAt: now + 1100,
+      expiresAt: now + 2800
+    }
+  };
+};
 
 const createLogEntry = (message: string): GameLogEntry => ({
   id: makeId("log"),

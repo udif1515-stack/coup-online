@@ -1,5 +1,5 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { applySharedTimer, createGame } from "@/game/engine";
+import { applySharedTimer, continueCheck, createGame } from "@/game/engine";
 import type { GameState } from "@/game/types";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { getStoredPlayerId, storePlayerId } from "./playerSession";
@@ -29,6 +29,9 @@ export type OnlineAppState = {
 const MAIN_ID = "main";
 
 const makeChannelName = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+
+const statusForGameState = (gameState: GameState): OnlineStatus =>
+  gameState.phase === "gameOver" ? "finished" : "playing";
 
 export const ensureAppState = async () => {
   const supabase = getSupabaseClient();
@@ -198,11 +201,17 @@ export const startOnlineGame = async (players: OnlinePlayer[], requesterPlayerId
 
   const gameState = applySharedTimer(createGame(seatedPlayers.map((player) => player.name)));
   const previousWinCounts = appState.game_state_json?.winCounts ?? {};
+  const previousWinnerId = appState.game_state_json?.winnerId;
+  const startingPlayerIndex = previousWinnerId
+    ? seatedPlayers.findIndex((player) => player.id === previousWinnerId)
+    : -1;
+
   gameState.players = gameState.players.map((player, index) => ({
     ...player,
     id: seatedPlayers[index].id,
     name: seatedPlayers[index].name
   }));
+  gameState.currentPlayerIndex = startingPlayerIndex >= 0 ? startingPlayerIndex : 0;
   gameState.winCounts = Object.fromEntries(
     seatedPlayers.map((player) => [player.id, previousWinCounts[player.id] ?? 0])
   );
@@ -243,13 +252,43 @@ export const updateOnlineGameState = async (gameState: GameState, status?: Onlin
   const { error } = await supabase
     .from("app_state")
     .update({
-      status: status ?? (gameState.phase === "gameOver" ? "finished" : "playing"),
+      status: status ?? statusForGameState(gameState),
       game_state_json: gameState,
       updated_at: new Date().toISOString()
     })
     .eq("id", MAIN_ID);
 
   if (error) throw error;
+};
+
+export const continueOnlineCheck = async (playerId: string): Promise<GameState> => {
+  const supabase = getSupabaseClient();
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const appState = await ensureAppState();
+    const latestGameState = appState.game_state_json;
+    if (!latestGameState) throw new Error("No active game");
+
+    const nextGameState = continueCheck(latestGameState, playerId);
+    const { data, error } = await supabase
+      .from("app_state")
+      .update({
+        status: statusForGameState(nextGameState),
+        game_state_json: nextGameState,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", MAIN_ID)
+      .eq("updated_at", appState.updated_at)
+      .select("*")
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data) return (data as OnlineAppState).game_state_json ?? nextGameState;
+  }
+
+  const appState = await ensureAppState();
+  if (!appState.game_state_json) throw new Error("No active game");
+  return appState.game_state_json;
 };
 
 export const subscribePlayers = (onChange: () => void): RealtimeChannel => {

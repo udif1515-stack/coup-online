@@ -13,8 +13,6 @@ import {
   resumeGame,
   resolveCheck,
   resolveResponse,
-  selectAmbassadorExchangeOfferedCard,
-  selectAmbassadorExchangeOldCard,
   selectAction,
   selectTarget,
   withSharedTimerDisplay
@@ -39,6 +37,7 @@ type GameBoardProps = {
   isHost?: boolean;
   hostPlayerId?: PlayerId;
   onGameStateChange?: (gameState: GameState) => void | Promise<void>;
+  onContinueCheck?: (playerId: PlayerId) => Promise<GameState | undefined>;
 };
 
 export function GameBoard({
@@ -50,7 +49,8 @@ export function GameBoard({
   enableTimers = true,
   isHost = false,
   hostPlayerId,
-  onGameStateChange
+  onGameStateChange,
+  onContinueCheck
 }: GameBoardProps) {
   const [gameState, setGameState] = useState(initialGame);
   const [now, setNow] = useState(() => Date.now());
@@ -76,6 +76,21 @@ export function GameBoard({
     displayGameState.actionBubble && displayGameState.actionBubble.expiresAt > now
       ? displayGameState.actionBubble
       : undefined;
+  const visibleCoupFlash =
+    displayGameState.coupFlash && displayGameState.coupFlash.expiresAt > now
+      ? displayGameState.coupFlash
+      : undefined;
+  const showCoupResult = Boolean(visibleCoupFlash?.resultAt && now >= visibleCoupFlash.resultAt);
+  const coupFlashText = showCoupResult
+    ? visibleCoupFlash?.result === "success"
+      ? "SUCCESS"
+      : "FAILED"
+    : "COUP";
+  const coupFlashTextClass = showCoupResult
+    ? visibleCoupFlash?.result === "success"
+      ? "text-emerald-400 drop-shadow-[0_8px_0_rgba(6,78,59,0.95)]"
+      : "text-red-500 drop-shadow-[0_8px_0_rgba(127,29,29,0.95)]"
+    : "text-red-700 drop-shadow-[0_8px_0_rgba(15,23,42,0.95)]";
 
   const commitGameState = (next: GameState) => {
     if (next === gameState) return;
@@ -149,19 +164,27 @@ export function GameBoard({
     commitGameState(resolveResponse(gameState, playerId, response));
   };
 
+  const handleContinueCheck = async (playerId: PlayerId) => {
+    if (gameState.isPaused) return;
+
+    if (onContinueCheck) {
+      const nextGameState = await onContinueCheck(playerId);
+      if (nextGameState) {
+        const nextWithTimer = applySharedTimer(nextGameState);
+        setGameState(nextWithTimer);
+        if (nextWithTimer.phase === "gameOver") {
+          onGameOver(nextWithTimer);
+        }
+      }
+      return;
+    }
+
+    commitGameState(continueCheck(gameState, playerId));
+  };
+
   const handleExchange = (playerId: PlayerId, oldCardId: string, offeredCardId: string) => {
     if (gameState.isPaused) return;
     commitGameState(completeAmbassadorExchange(gameState, playerId, oldCardId, offeredCardId));
-  };
-
-  const handleSelectExchangeOldCard = (cardId: string) => {
-    if (gameState.isPaused) return;
-    commitGameState(selectAmbassadorExchangeOldCard(gameState, viewer.id, cardId));
-  };
-
-  const handleSelectExchangeOfferedCard = (cardId: string) => {
-    if (gameState.isPaused) return;
-    commitGameState(selectAmbassadorExchangeOfferedCard(gameState, viewer.id, cardId));
   };
 
   const handlePause = () => {
@@ -392,12 +415,20 @@ export function GameBoard({
         </div>
       ) : null}
 
+      {visibleCoupFlash ? (
+        <div className="pointer-events-none fixed inset-0 z-[45] flex items-center justify-center bg-black/35 px-4">
+          <div key={showCoupResult ? visibleCoupFlash.result : "coup"} className="coup-flash text-center">
+            <div className={["text-7xl font-black leading-none", coupFlashTextClass].join(" ")}>
+              {coupFlashText}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <ActionModal
         gameState={displayGameState}
         currentPlayerId={viewer.id}
         onlineMode={onlineMode}
-        onSelectOldCard={handleSelectExchangeOldCard}
-        onSelectOfferedCard={handleSelectExchangeOfferedCard}
         onConfirm={handleExchange}
       />
       <CheckModal
@@ -405,7 +436,7 @@ export function GameBoard({
         currentPlayerId={viewer.id}
         onlineMode={onlineMode}
         onCoup={(checkerId) => commitGameState(resolveCheck(gameState, checkerId))}
-        onContinue={(playerId) => commitGameState(continueCheck(gameState, playerId))}
+        onContinue={handleContinueCheck}
       />
       <InfluenceLossModal
         gameState={displayGameState}

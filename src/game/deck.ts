@@ -1,6 +1,7 @@
-import type { Card, CardType } from "./types";
+import type { Card, CardColor, CardType } from "./types";
 
 export const DECK_CARD_TYPES: CardType[] = ["A", "K", "Q", "J", "3"];
+export const CARD_COPY_COLORS: CardColor[] = ["red", "green", "blue"];
 export const COPIES_PER_CARD_TYPE = 3;
 export const TOTAL_DECK_CARDS = DECK_CARD_TYPES.length * COPIES_PER_CARD_TYPE;
 
@@ -9,6 +10,7 @@ export const createDeck = (): Card[] =>
     Array.from({ length: COPIES_PER_CARD_TYPE }, (_, index) => ({
       id: `${type}-${index + 1}-${cryptoRandomId()}`,
       type,
+      color: CARD_COPY_COLORS[index],
       revealed: false
     }))
   );

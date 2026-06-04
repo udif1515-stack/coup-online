@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { GameBoard } from "@/components/GameBoard";
 import type { GameState } from "@/game/types";
 import {
+  continueOnlineCheck,
   getAppState,
   getPlayer,
   OnlineAppState,
@@ -101,6 +102,15 @@ export default function GamePage() {
     }
   };
 
+  const handleContinueCheck = async (continuingPlayerId: string) => {
+    try {
+      return await continueOnlineCheck(continuingPlayerId);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not continue");
+      return undefined;
+    }
+  };
+
   const handlePlayAgain = async () => {
     try {
       if (!playerId) throw new Error("Could not find your player session");
@@ -180,6 +190,7 @@ export default function GamePage() {
       hostPlayerId={hostPlayerId}
       onGameStateChange={handleGameStateChange}
       onGameOver={handleGameOver}
+      onContinueCheck={handleContinueCheck}
     />
   );
 }

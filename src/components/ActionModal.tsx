@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { GameState, PlayerId } from "@/game/types";
 import { Card } from "./Card";
 
@@ -5,8 +6,6 @@ type ActionModalProps = {
   gameState: GameState;
   currentPlayerId?: PlayerId;
   onlineMode?: boolean;
-  onSelectOldCard: (cardId: string) => void;
-  onSelectOfferedCard: (cardId: string) => void;
   onConfirm: (playerId: PlayerId, oldCardId: string, offeredCardId: string) => void;
 };
 
@@ -14,11 +13,19 @@ export function ActionModal({
   gameState,
   currentPlayerId,
   onlineMode = false,
-  onSelectOldCard,
-  onSelectOfferedCard,
   onConfirm
 }: ActionModalProps) {
   const exchange = gameState.ambassadorExchange;
+  const [selectedOldCardId, setSelectedOldCardId] = useState<string>();
+  const [selectedOfferedCardId, setSelectedOfferedCardId] = useState<string>();
+
+  const offeredCardKey = exchange?.offeredCards.map((card) => card.id).join(":") ?? "";
+
+  useEffect(() => {
+    setSelectedOldCardId(undefined);
+    setSelectedOfferedCardId(undefined);
+  }, [exchange?.playerId, offeredCardKey]);
+
   if (!exchange) return null;
 
   const player = gameState.players.find((item) => item.id === exchange.playerId);
@@ -36,8 +43,6 @@ export function ActionModal({
   }
 
   const liveCards = player.cards.filter((card) => !card.revealed);
-  const selectedOldCardId = exchange.selectedOldCardId;
-  const selectedOfferedCardId = exchange.selectedOfferedCardId;
   const step = !selectedOldCardId ? 1 : !selectedOfferedCardId ? 2 : 3;
 
   return (
@@ -53,7 +58,10 @@ export function ActionModal({
               <button
                 key={card.id}
                 type="button"
-                onClick={() => onSelectOldCard(card.id)}
+                onClick={() => {
+                  setSelectedOldCardId(card.id);
+                  setSelectedOfferedCardId(undefined);
+                }}
                 className={[
                   "rounded-lg p-1 transition",
                   selectedOldCardId === card.id ? "bg-brass" : "bg-white/10"
@@ -73,14 +81,14 @@ export function ActionModal({
                 key={card.id}
                 type="button"
                 disabled={!selectedOldCardId}
-                onClick={() => onSelectOfferedCard(card.id)}
+                onClick={() => setSelectedOfferedCardId(card.id)}
                 className={[
-                  "rounded-lg border p-3 text-left transition",
+                  "flex justify-center rounded-lg border p-2 transition",
                   selectedOfferedCardId === card.id ? "border-brass bg-brass/25" : "border-white/10 bg-white/10",
                   !selectedOldCardId ? "opacity-40" : ""
                 ].join(" ")}
               >
-                <span className="text-2xl font-black">{card.type}</span>
+                <Card card={card} compact />
               </button>
             ))}
           </div>

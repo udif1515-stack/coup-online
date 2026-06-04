@@ -1,6 +1,7 @@
 export type PlayerId = string;
 
 export type CardType = "A" | "K" | "Q" | "J" | "3";
+export type CardColor = "red" | "green" | "blue";
 
 export type TurnAction = "A" | "K" | "J" | "3" | "3?" | "Drop" | "Check";
 
@@ -43,6 +44,7 @@ export type ResponseType =
 export type Card = {
   id: string;
   type: CardType;
+  color?: CardColor;
   revealed: boolean;
 };
 
@@ -64,6 +66,15 @@ export type ActionBubble = {
   id: string;
   playerId: PlayerId;
   label: string;
+  expiresAt: number;
+};
+
+export type CoupFlash = {
+  id: string;
+  checkerId: PlayerId;
+  claimantId: PlayerId;
+  result: "success" | "failed";
+  resultAt: number;
   expiresAt: number;
 };
 
@@ -127,8 +138,6 @@ export type TargetSelection = {
 export type AmbassadorExchange = {
   playerId: PlayerId;
   offeredCards: Card[];
-  selectedOldCardId?: string;
-  selectedOfferedCardId?: string;
 };
 
 export type GameState = {
@@ -142,6 +151,7 @@ export type GameState = {
   timer: number;
   winCounts: Record<PlayerId, number>;
   actionBubble?: ActionBubble;
+  coupFlash?: CoupFlash;
   isPaused?: boolean;
   pausedByPlayerId?: PlayerId;
   pausedAt?: number;
