@@ -71,6 +71,19 @@ export default function HomePage() {
           </div>
 
           <div className="mt-5 grid gap-4 overflow-y-auto pb-3 pr-1">
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-black uppercase text-red-700">VIDEO EXPLANATION</h2>
+              <div className="mt-3 aspect-video w-full overflow-hidden rounded-lg bg-slate-950">
+                <iframe
+                  className="h-full w-full"
+                  src="https://www.youtube.com/embed/IBIzEOW49JQ"
+                  title="COUP rules explanation video"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+              </div>
+            </section>
+
             <section className="rounded-xl border-2 border-slate-950 bg-white p-4 shadow-sm">
               <h2 className="text-sm font-black uppercase text-red-700">Goal</h2>
               <p className="mt-2 text-sm font-bold">Be the last player with cards remaining.</p>

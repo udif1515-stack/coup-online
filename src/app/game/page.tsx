@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { GameBoard } from "@/components/GameBoard";
 import type { GameState } from "@/game/types";
 import {
@@ -18,6 +18,8 @@ import {
 } from "@/services/onlineGameService";
 import { getStoredPlayerId } from "@/services/playerSession";
 
+const FINAL_COUP_FLASH_DURATION_MS = 2800;
+
 export default function GamePage() {
   const router = useRouter();
   const [playerId, setPlayerId] = useState<string>();
@@ -25,6 +27,9 @@ export default function GamePage() {
   const [appState, setAppState] = useState<OnlineAppState>();
   const [gameState, setGameState] = useState<GameState>();
   const [error, setError] = useState<string>();
+  const [now, setNow] = useState(() => Date.now());
+  const [finalCoupFlash, setFinalCoupFlash] = useState<{ id: string; expiresAt: number }>();
+  const lastFinalCoupFlashIdRef = useRef<string | undefined>(undefined);
 
   const winner = useMemo(
     () => gameState?.players.find((gamePlayer) => gamePlayer.id === gameState.winnerId),
@@ -32,6 +37,14 @@ export default function GamePage() {
   );
   const hostPlayerId = appState?.host_player_id ?? (player?.is_host ? player.id : undefined);
   const isCurrentHost = Boolean(playerId && hostPlayerId === playerId);
+  const hasUnseenFinalCoupFlash = Boolean(
+    appState?.status === "finished" &&
+      gameState?.coupFlash &&
+      gameState.coupFlash.id !== lastFinalCoupFlashIdRef.current
+  );
+  const shouldShowFinalCoupFlash = Boolean(
+    hasUnseenFinalCoupFlash || (finalCoupFlash && finalCoupFlash.expiresAt > now)
+  );
 
   useEffect(() => {
     const storedId = getStoredPlayerId();
@@ -85,6 +98,26 @@ export default function GamePage() {
       unsubscribe(channel);
     };
   }, [router]);
+
+  useEffect(() => {
+    if (appState?.status !== "finished" || !gameState?.coupFlash) return;
+    if (gameState.coupFlash.id === lastFinalCoupFlashIdRef.current) return;
+
+    const startedAt = Date.now();
+    lastFinalCoupFlashIdRef.current = gameState.coupFlash.id;
+    setFinalCoupFlash({
+      id: gameState.coupFlash.id,
+      expiresAt: startedAt + FINAL_COUP_FLASH_DURATION_MS
+    });
+    setNow(startedAt);
+  }, [appState?.status, gameState?.coupFlash]);
+
+  useEffect(() => {
+    if (!shouldShowFinalCoupFlash) return;
+
+    const timerId = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timerId);
+  }, [shouldShowFinalCoupFlash]);
 
   const handleGameStateChange = async (nextGameState: GameState) => {
     try {
@@ -144,7 +177,7 @@ export default function GamePage() {
     );
   }
 
-  if (appState.status === "finished" && winner) {
+  if (appState.status === "finished" && winner && !shouldShowFinalCoupFlash) {
     return (
       <main className="min-h-dvh bg-[#f4efe5] px-5 py-6 text-slate-950">
         <div className="mx-auto flex min-h-[calc(100dvh-3rem)] max-w-md flex-col justify-center">

@@ -27,6 +27,9 @@ import { InfluenceLossModal } from "./InfluenceLossModal";
 import { ResponseModal } from "./ResponseModal";
 import { TargetSelection } from "./TargetSelection";
 
+const COUP_RESULT_DELAY_MS = 1100;
+const COUP_FLASH_DURATION_MS = 2800;
+
 type GameBoardProps = {
   initialGame: GameState;
   onGameOver: (gameState: GameState) => void;
@@ -55,7 +58,14 @@ export function GameBoard({
   const [gameState, setGameState] = useState(initialGame);
   const [now, setNow] = useState(() => Date.now());
   const [localViewerId, setLocalViewerId] = useState<PlayerId>(viewerPlayerId ?? initialGame.players[0].id);
+  const [localCoupFlash, setLocalCoupFlash] = useState<{
+    id: string;
+    result: "success" | "failed";
+    resultAt: number;
+    expiresAt: number;
+  }>();
   const handledTimeoutRef = useRef<string | undefined>(undefined);
+  const lastCoupFlashIdRef = useRef<string | undefined>(undefined);
 
   const displayGameState = useMemo(() => withSharedTimerDisplay(gameState, now), [gameState, now]);
   const viewerId = viewerPlayerId ?? localViewerId;
@@ -76,10 +86,7 @@ export function GameBoard({
     displayGameState.actionBubble && displayGameState.actionBubble.expiresAt > now
       ? displayGameState.actionBubble
       : undefined;
-  const visibleCoupFlash =
-    displayGameState.coupFlash && displayGameState.coupFlash.expiresAt > now
-      ? displayGameState.coupFlash
-      : undefined;
+  const visibleCoupFlash = localCoupFlash && localCoupFlash.expiresAt > now ? localCoupFlash : undefined;
   const showCoupResult = Boolean(visibleCoupFlash?.resultAt && now >= visibleCoupFlash.resultAt);
   const coupFlashText = showCoupResult
     ? visibleCoupFlash?.result === "success"
@@ -111,6 +118,21 @@ export function GameBoard({
     const timerId = window.setInterval(() => setNow(Date.now()), 500);
     return () => window.clearInterval(timerId);
   }, []);
+
+  useEffect(() => {
+    const nextCoupFlash = gameState.coupFlash;
+    if (!nextCoupFlash || nextCoupFlash.id === lastCoupFlashIdRef.current) return;
+
+    const startedAt = Date.now();
+    lastCoupFlashIdRef.current = nextCoupFlash.id;
+    setLocalCoupFlash({
+      id: nextCoupFlash.id,
+      result: nextCoupFlash.result,
+      resultAt: startedAt + COUP_RESULT_DELAY_MS,
+      expiresAt: startedAt + COUP_FLASH_DURATION_MS
+    });
+    setNow(startedAt);
+  }, [gameState.coupFlash]);
 
   useEffect(() => {
     if (!enableTimers) return;

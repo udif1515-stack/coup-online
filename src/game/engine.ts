@@ -417,6 +417,15 @@ export const resolveCheck = (gameState: GameState, checkerId?: PlayerId): GameSt
   if (realCard) {
     next = revealAndReplaceClaimedCard(next, claimant.id, realCard);
     next = addLog(next, `${claimant.name} had ${pending.claimedCard}. ${checker.name} loses one influence.`);
+    if (
+      pending.sourceAction === "J" &&
+      pending.claimedCard === "J" &&
+      pending.targetId === checker.id &&
+      pending.onAllowed === "assassin-response"
+    ) {
+      return resolveFailedCoupAgainstRealAssassin(clearPendingCheck(next), claimant.id, checker.id);
+    }
+
     return requestInfluenceLoss(clearPendingCheck(next), checker.id, "failed_coup", {
       type: "continue-after-coup",
       pendingCheck: pending,
@@ -808,16 +817,66 @@ const continueAfterCheck = (
   pending: PendingCheck
 ): GameState => {
   if (continuation === "ambassador-exchange") return startAmbassadorExchange(gameState, pending.claimantId);
-  if (continuation === "captain-response" && pending.targetId) return startCaptainResponse(gameState, pending.claimantId, pending.targetId);
+  if (continuation === "captain-response" && pending.targetId) {
+    if (!canTargetContinue(gameState, pending.claimantId, pending.targetId)) return nextTurn(gameState);
+    return startCaptainResponse(gameState, pending.claimantId, pending.targetId);
+  }
   if (continuation === "captain-blocked") return nextTurn(addLog(gameState, "K was blocked."));
-  if (continuation === "captain-steal" && pending.targetId) return resolveCaptainSteal(gameState, getActivePlayer(gameState).id, pending.targetId);
-  if (continuation === "assassin-response" && pending.targetId) return startAssassinResponse(gameState, pending.claimantId, pending.targetId);
+  if (continuation === "captain-steal" && pending.targetId) {
+    if (!canTargetContinue(gameState, getActivePlayer(gameState).id, pending.targetId)) return nextTurn(gameState);
+    return resolveCaptainSteal(gameState, getActivePlayer(gameState).id, pending.targetId);
+  }
+  if (continuation === "assassin-response" && pending.targetId) {
+    if (!canTargetContinue(gameState, pending.claimantId, pending.targetId)) return nextTurn(gameState);
+    return startAssassinResponse(gameState, pending.claimantId, pending.targetId);
+  }
   if (continuation === "assassin-blocked") return nextTurn(addLog(gameState, "J was blocked."));
-  if (continuation === "assassin-hit" && pending.targetId) return resolveAssassinHit(gameState, getActivePlayer(gameState).id, pending.targetId);
+  if (continuation === "assassin-hit" && pending.targetId) {
+    if (!canTargetContinue(gameState, getActivePlayer(gameState).id, pending.targetId)) return nextTurn(gameState);
+    return resolveAssassinHit(gameState, getActivePlayer(gameState).id, pending.targetId);
+  }
   if (continuation === "duke-income") return resolveDukeIncome(gameState, pending.claimantId);
   if (continuation === "foreign-aid-blocked") return nextTurn(addLog(gameState, "3? was blocked."));
   if (continuation === "foreign-aid-income") return resolveForeignAidIncome(gameState, getActivePlayer(gameState).id);
   return nextTurn(gameState);
+};
+
+const canTargetContinue = (gameState: GameState, actorId: PlayerId, targetId: PlayerId) => {
+  const actor = getPlayer(gameState, actorId);
+  const target = getPlayer(gameState, targetId);
+  return Boolean(actor && target && !actor.eliminated && !target.eliminated);
+};
+
+const resolveFailedCoupAgainstRealAssassin = (
+  gameState: GameState,
+  actorId: PlayerId,
+  targetId: PlayerId
+): GameState => {
+  const actor = getPlayer(gameState, actorId);
+  const target = getPlayer(gameState, targetId);
+  if (!actor || !target) return nextTurn(clearPending(gameState));
+
+  const liveCards = target.cards.filter((card) => !card.revealed);
+  let next = clearPending(gameState);
+
+  if (liveCards.length > 0) {
+    next = updatePlayer(next, target.id, (current) => ({
+      ...current,
+      cards: current.cards.map((card) => (card.revealed ? card : { ...card, revealed: true }))
+    }));
+
+    next = addLog(
+      next,
+      `${target.name} revealed ${liveCards.map((card) => card.type).join(" and ")} and lost ${liveCards.length === 1 ? "one influence" : "both influences"}.`
+    );
+  }
+
+  next = addLog(next, `${actor.name}'s J hit ${target.name}.`);
+  next = eliminatePlayerIfNeeded(next, target.id);
+  next = checkWinner(next);
+
+  if (next.phase === "gameOver") return next;
+  return nextTurn(next);
 };
 
 const continueAfterInfluenceLoss = (gameState: GameState, pending: PendingInfluenceLoss): GameState => {
