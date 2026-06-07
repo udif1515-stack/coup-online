@@ -10,6 +10,7 @@ export default function HomePage() {
   const router = useRouter();
   const [mode, setMode] = useState<LobbyMode>();
   const [name, setName] = useState("");
+  const [roomCode, setRoomCode] = useState("");
   const [error, setError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
@@ -28,7 +29,7 @@ export default function HomePage() {
       if (mode === "create") {
         await createLobby(trimmedName);
       } else {
-        await joinLobby(trimmedName);
+        await joinLobby(trimmedName, roomCode);
       }
 
       router.push("/lobby");
@@ -43,6 +44,7 @@ export default function HomePage() {
     setMode(nextMode);
     setError(undefined);
     setName("");
+    setRoomCode("");
   };
 
   const handleCreateLobbyClick = () => {
@@ -175,6 +177,20 @@ export default function HomePage() {
                 autoFocus
               />
             </label>
+
+            {mode === "join" ? (
+              <label className="mt-4 grid gap-2 text-sm font-black uppercase text-slate-600">
+                Room code
+                <input
+                  value={roomCode}
+                  onChange={(event) => setRoomCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-3 text-lg font-bold tracking-[0.25em] text-slate-950"
+                  placeholder="482913"
+                  inputMode="numeric"
+                  maxLength={6}
+                />
+              </label>
+            ) : null}
 
             {error ? <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p> : null}
 

@@ -16,13 +16,14 @@ import {
   unsubscribe,
   updateOnlineGameState
 } from "@/services/onlineGameService";
-import { getStoredPlayerId } from "@/services/playerSession";
+import { getStoredPlayerId, getStoredRoomId } from "@/services/playerSession";
 
 const FINAL_COUP_FLASH_DURATION_MS = 2800;
 
 export default function GamePage() {
   const router = useRouter();
   const [playerId, setPlayerId] = useState<string>();
+  const [roomId, setRoomId] = useState<string>();
   const [player, setPlayer] = useState<OnlinePlayer | null>(null);
   const [appState, setAppState] = useState<OnlineAppState>();
   const [gameState, setGameState] = useState<GameState>();
@@ -48,19 +49,21 @@ export default function GamePage() {
 
   useEffect(() => {
     const storedId = getStoredPlayerId();
-    if (!storedId) {
+    const storedRoomId = getStoredRoomId();
+    if (!storedId || !storedRoomId) {
       router.replace("/");
       return;
     }
 
     setPlayerId(storedId);
+    setRoomId(storedRoomId);
     let isMounted = true;
 
     const syncAppState = (nextAppState: OnlineAppState) => {
       if (!isMounted) return;
 
       setAppState(nextAppState);
-      if (nextAppState.status === "waiting") {
+      if (nextAppState.status === "lobby") {
         router.replace("/lobby");
         return;
       }
@@ -71,7 +74,10 @@ export default function GamePage() {
     };
 
     const load = async () => {
-      const [nextPlayer, nextAppState] = await Promise.all([getPlayer(storedId), getAppState()]);
+      const [nextPlayer, nextAppState] = await Promise.all([
+        getPlayer(storedId, storedRoomId),
+        getAppState(storedRoomId)
+      ]);
       if (!isMounted) return;
 
       if (!nextPlayer) {
@@ -87,9 +93,9 @@ export default function GamePage() {
       if (isMounted) setError(caught instanceof Error ? caught.message : "Could not load game");
     });
 
-    const channel = subscribeAppState(syncAppState);
+    const channel = subscribeAppState(storedRoomId, syncAppState);
     const pollingInterval = window.setInterval(() => {
-      getAppState().then(syncAppState).catch(() => undefined);
+      getAppState(storedRoomId).then(syncAppState).catch(() => undefined);
     }, 1000);
 
     return () => {
@@ -121,7 +127,8 @@ export default function GamePage() {
 
   const handleGameStateChange = async (nextGameState: GameState) => {
     try {
-      await updateOnlineGameState(nextGameState);
+      if (!roomId) throw new Error("Could not find your room");
+      await updateOnlineGameState(roomId, nextGameState);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not sync game");
     }
@@ -129,7 +136,8 @@ export default function GamePage() {
 
   const handleGameOver = async (finishedGame: GameState) => {
     try {
-      await updateOnlineGameState(finishedGame, "finished");
+      if (!roomId) throw new Error("Could not find your room");
+      await updateOnlineGameState(roomId, finishedGame, "finished");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not finish game");
     }
@@ -137,7 +145,8 @@ export default function GamePage() {
 
   const handleContinueCheck = async (continuingPlayerId: string) => {
     try {
-      return await continueOnlineCheck(continuingPlayerId);
+      if (!roomId) throw new Error("Could not find your room");
+      return await continueOnlineCheck(roomId, continuingPlayerId);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not continue");
       return undefined;
@@ -147,8 +156,9 @@ export default function GamePage() {
   const handlePlayAgain = async () => {
     try {
       if (!playerId) throw new Error("Could not find your player session");
+      if (!roomId) throw new Error("Could not find your room");
 
-      await returnToLobbyForNextRound(playerId);
+      await returnToLobbyForNextRound(roomId, playerId);
       router.push("/lobby");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not return to lobby");
@@ -169,7 +179,7 @@ export default function GamePage() {
     );
   }
 
-  if (!playerId || !player || !appState || !gameState) {
+  if (!playerId || !roomId || !player || !appState || !gameState) {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-[#f4efe5] px-5 text-slate-950">
         <p className="font-black">Loading online game...</p>

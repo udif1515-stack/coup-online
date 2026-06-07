@@ -12,13 +12,15 @@ import {
   subscribePlayers,
   unsubscribe
 } from "@/services/onlineGameService";
-import { getStoredPlayerId } from "@/services/playerSession";
+import { getStoredPlayerId, getStoredRoomCode, getStoredRoomId } from "@/services/playerSession";
 
 export default function LobbyPage() {
   const router = useRouter();
   const [players, setPlayers] = useState<OnlinePlayer[]>([]);
   const [appState, setAppState] = useState<OnlineAppState>();
   const [playerId, setPlayerId] = useState<string>();
+  const [roomId, setRoomId] = useState<string>();
+  const [copiedCode, setCopiedCode] = useState(false);
   const [error, setError] = useState<string>();
   const [isStarting, setIsStarting] = useState(false);
 
@@ -30,16 +32,18 @@ export default function LobbyPage() {
 
   useEffect(() => {
     const storedId = getStoredPlayerId();
-    if (!storedId) {
+    const storedRoomId = getStoredRoomId();
+    if (!storedId || !storedRoomId) {
       router.replace("/");
       return;
     }
 
     setPlayerId(storedId);
+    setRoomId(storedRoomId);
     let isMounted = true;
 
     const refreshLobby = async () => {
-      const [nextPlayers, nextAppState] = await Promise.all([getPlayers(), getAppState()]);
+      const [nextPlayers, nextAppState] = await Promise.all([getPlayers(storedRoomId), getAppState(storedRoomId)]);
       if (!isMounted) return;
 
       setPlayers(nextPlayers);
@@ -52,10 +56,10 @@ export default function LobbyPage() {
       if (isMounted) setError(caught instanceof Error ? caught.message : "Could not load lobby");
     });
 
-    const playersChannel = subscribePlayers(() => {
+    const playersChannel = subscribePlayers(storedRoomId, () => {
       refreshLobby().catch(() => undefined);
     });
-    const appStateChannel = subscribeAppState((nextState) => {
+    const appStateChannel = subscribeAppState(storedRoomId, (nextState) => {
       if (!isMounted) return;
 
       setAppState(nextState);
@@ -79,8 +83,9 @@ export default function LobbyPage() {
 
     try {
       if (!playerId) throw new Error("Could not find your player session");
+      if (!roomId) throw new Error("Could not find your room");
 
-      await startOnlineGame(players, playerId);
+      await startOnlineGame(roomId, players, playerId);
       router.push("/game");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not start game");
@@ -89,11 +94,33 @@ export default function LobbyPage() {
     }
   };
 
+  const handleCopyCode = async () => {
+    const code = appState?.code ?? getStoredRoomCode();
+    if (!code || !navigator.clipboard) return;
+
+    await navigator.clipboard.writeText(code);
+    setCopiedCode(true);
+    window.setTimeout(() => setCopiedCode(false), 1200);
+  };
+
   return (
     <main className="min-h-dvh bg-[#f4efe5] px-5 py-6 text-slate-950">
       <div className="mx-auto max-w-md">
         <p className="text-sm font-black uppercase tracking-[0.2em] text-red-700">Lobby</p>
         <p className="mt-2 text-slate-600">Players joined: {players.length}/5</p>
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border-2 border-slate-950 bg-white p-4 shadow-sm">
+          <div>
+            <p className="text-xs font-black uppercase text-slate-500">Room code</p>
+            <p className="mt-1 text-3xl font-black tracking-[0.18em]">{appState?.code ?? getStoredRoomCode() ?? "------"}</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyCode}
+            className="rounded-lg bg-slate-950 px-4 py-3 text-sm font-black text-white active:scale-95"
+          >
+            {copiedCode ? "Copied" : "Copy"}
+          </button>
+        </div>
 
         <section className="mt-6 rounded-xl border-2 border-slate-950 bg-white p-4 shadow-sm">
           <div className="grid gap-3">
@@ -145,7 +172,9 @@ export default function LobbyPage() {
         ) : null}
 
         {!isCurrentHost ? <p className="mt-3 text-center text-sm text-slate-500">Waiting for host to start.</p> : null}
-        {appState?.status === "finished" ? <p className="mt-3 text-center text-sm text-slate-500">Previous game finished.</p> : null}
+        {appState?.status === "finished" ? (
+          <p className="mt-3 text-center text-sm text-slate-500">Previous game finished.</p>
+        ) : null}
       </div>
     </main>
   );
