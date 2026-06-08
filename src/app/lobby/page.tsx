@@ -20,6 +20,7 @@ export default function LobbyPage() {
   const [appState, setAppState] = useState<OnlineAppState>();
   const [playerId, setPlayerId] = useState<string>();
   const [roomId, setRoomId] = useState<string>();
+  const [storedRoomCode, setStoredRoomCode] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [error, setError] = useState<string>();
   const [isStarting, setIsStarting] = useState(false);
@@ -29,8 +30,11 @@ export default function LobbyPage() {
   const canStart = Boolean(isCurrentHost && players.length >= 3 && players.length <= 5);
   const winCounts = appState?.game_state_json?.winCounts ?? {};
   const hasScoreboard = players.some((player) => (winCounts[player.id] ?? 0) > 0);
+  const roomCode = appState?.code ?? storedRoomCode ?? "------";
 
   useEffect(() => {
+    setStoredRoomCode(getStoredRoomCode() ?? null);
+
     const storedId = getStoredPlayerId();
     const storedRoomId = getStoredRoomId();
     if (!storedId || !storedRoomId) {
@@ -95,7 +99,7 @@ export default function LobbyPage() {
   };
 
   const handleCopyCode = async () => {
-    const code = appState?.code ?? getStoredRoomCode();
+    const code = appState?.code ?? storedRoomCode;
     if (!code || !navigator.clipboard) return;
 
     await navigator.clipboard.writeText(code);
@@ -111,7 +115,7 @@ export default function LobbyPage() {
         <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border-2 border-slate-950 bg-white p-4 shadow-sm">
           <div>
             <p className="text-xs font-black uppercase text-slate-500">Room code</p>
-            <p className="mt-1 text-3xl font-black tracking-[0.18em]">{appState?.code ?? getStoredRoomCode() ?? "------"}</p>
+            <p className="mt-1 text-3xl font-black tracking-[0.18em]">{roomCode}</p>
           </div>
           <button
             type="button"

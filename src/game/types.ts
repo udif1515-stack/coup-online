@@ -9,6 +9,7 @@ export type GamePhase =
   | "setup"
   | "playing"
   | "selectingTarget"
+  | "ambassadorSelection"
   | "pendingCheck"
   | "pendingBlockOrResponse"
   | "pendingInfluenceLoss"
@@ -96,6 +97,7 @@ export type PendingCheck = {
   claimantId: PlayerId;
   claimedCard: CardType;
   sourceAction: PendingActionType;
+  sourceActorId?: PlayerId;
   targetId?: PlayerId;
   eligibleCheckerIds: PlayerId[];
   passedPlayerIds: PlayerId[];
@@ -137,7 +139,13 @@ export type TargetSelection = {
 
 export type AmbassadorExchange = {
   playerId: PlayerId;
+  selectedCardIndex: number;
   offeredCards: Card[];
+};
+
+export type PendingAmbassadorSelection = {
+  playerId: PlayerId;
+  selectedCardIndex?: number;
 };
 
 export type GameState = {
@@ -159,6 +167,7 @@ export type GameState = {
   timerStartedAt?: number;
   timerEndsAt?: number;
   targetSelection?: TargetSelection;
+  pendingAmbassadorSelection?: PendingAmbassadorSelection;
   pendingResponse?: PendingResponse;
   pendingCheck?: PendingCheck;
   pendingInfluenceLoss?: PendingInfluenceLoss;

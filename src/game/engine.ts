@@ -295,14 +295,19 @@ export const selectAction = (gameState: GameState, playerId: PlayerId, action: T
   }
 
   if (action === "A") {
-    return beginCheck(gameStateWithBubble, {
-      claimantId: playerId,
-      claimedCard: "A",
-      sourceAction: "A",
-      onAllowed: "ambassador-exchange",
-      onFalseClaim: "cancel-turn",
-      logMessage: `${player.name} claims A.`
-    });
+    const liveCardIndexes = getLiveCardIndexes(player);
+    if (liveCardIndexes.length === 0) return gameState;
+
+    if (liveCardIndexes.length === 1) {
+      return startAmbassadorCheck(gameStateWithBubble, playerId, liveCardIndexes[0]);
+    }
+
+    return {
+      ...addLog(gameStateWithBubble, `${player.name} is choosing a card for A exchange.`),
+      phase: "ambassadorSelection",
+      timer: 0,
+      pendingAmbassadorSelection: { playerId }
+    };
   }
 
   if (action === "K" || action === "J" || action === "Drop") {
@@ -388,6 +393,31 @@ export const selectTarget = (gameState: GameState, playerId: PlayerId, targetId:
   });
 };
 
+export const selectAmbassadorCard = (
+  gameState: GameState,
+  playerId: PlayerId,
+  selectedCardIndex: number
+): GameState => {
+  if (gameState.isPaused) return gameState;
+
+  const pending = gameState.pendingAmbassadorSelection;
+  const player = getPlayer(gameState, playerId);
+  const selectedCard = player?.cards[selectedCardIndex];
+
+  if (
+    gameState.phase !== "ambassadorSelection" ||
+    !pending ||
+    pending.playerId !== playerId ||
+    !player ||
+    !selectedCard ||
+    selectedCard.revealed
+  ) {
+    return gameState;
+  }
+
+  return startAmbassadorCheck(gameState, playerId, selectedCardIndex);
+};
+
 export const resolveCheck = (gameState: GameState, checkerId?: PlayerId): GameState => {
   if (gameState.isPaused) return gameState;
 
@@ -406,7 +436,7 @@ export const resolveCheck = (gameState: GameState, checkerId?: PlayerId): GameSt
   const checker = getPlayer(gameState, checkerId);
   if (!checker) return gameState;
 
-  const realCard = claimant.cards.find((card) => !card.revealed && card.type === pending.claimedCard);
+  const realCard = getRealCardForCheck(gameState, pending, claimant);
   let next = addCoupFlash(
     addLog(gameState, `${checker.name} used COUP on ${claimant.name}'s ${pending.claimedCard} claim.`),
     checker.id,
@@ -415,17 +445,21 @@ export const resolveCheck = (gameState: GameState, checkerId?: PlayerId): GameSt
   );
 
   if (realCard) {
-    next = revealAndReplaceClaimedCard(next, claimant.id, realCard);
-    next = addLog(next, `${claimant.name} had ${pending.claimedCard}. ${checker.name} loses one influence.`);
+    if (!isAmbassadorSelectedSlotCheck(gameState, pending)) {
+      next = revealAndReplaceClaimedCard(next, claimant.id, realCard);
+    }
+
     if (
       pending.sourceAction === "J" &&
       pending.claimedCard === "J" &&
       pending.targetId === checker.id &&
       pending.onAllowed === "assassin-response"
     ) {
-      return resolveFailedCoupAgainstRealAssassin(clearPendingCheck(next), claimant.id, checker.id);
+      next = addLog(next, `${claimant.name} had J. ${checker.name}'s COUP failed.`);
+      return resolveAssassinFullHit(clearPendingCheck(next), claimant.id, checker.id);
     }
 
+    next = addLog(next, `${claimant.name} had ${pending.claimedCard}. ${checker.name} loses one influence.`);
     return requestInfluenceLoss(clearPendingCheck(next), checker.id, "failed_coup", {
       type: "continue-after-coup",
       pendingCheck: pending,
@@ -433,9 +467,25 @@ export const resolveCheck = (gameState: GameState, checkerId?: PlayerId): GameSt
     });
   }
 
+  if (isFalseAssassinBlockCheck(pending, claimant.id)) {
+    const actorId = pending.sourceActorId ?? getActivePlayer(gameState).id;
+    next = addLog(next, `${claimant.name} did not have Q. The Q block was false.`);
+    return resolveAssassinFullHit(clearPendingCheck(next), actorId, claimant.id);
+  }
+
   next = addLog(next, `${claimant.name} did not have ${pending.claimedCard}. ${claimant.name} loses one influence.`);
-  next = addLog(next, "The action was cancelled because the claim was false.");
-  return requestInfluenceLoss(clearPendingCheck(next), claimant.id, "successful_coup", {
+  next = addLog(
+    next,
+    pending.onFalseClaim === "cancel-turn"
+      ? "The action was cancelled because the claim was false."
+      : "The block was cancelled because the claim was false."
+  );
+  const nextWithoutCheck =
+    pending.sourceAction === "A"
+      ? { ...clearPendingCheck(next), pendingAmbassadorSelection: undefined }
+      : clearPendingCheck(next);
+
+  return requestInfluenceLoss(nextWithoutCheck, claimant.id, "successful_coup", {
     type: "continue-after-coup",
     pendingCheck: pending,
     continuation: pending.onFalseClaim
@@ -503,6 +553,7 @@ export const resolveResponse = (gameState: GameState, playerId: PlayerId, respon
         claimantId: responder.id,
         claimedCard,
         sourceAction: "K",
+        sourceActorId: actor.id,
         targetId: target.id,
         onAllowed: "captain-blocked",
         onFalseClaim: "captain-steal",
@@ -521,6 +572,7 @@ export const resolveResponse = (gameState: GameState, playerId: PlayerId, respon
         claimantId: responder.id,
         claimedCard: "Q",
         sourceAction: "J",
+        sourceActorId: actor.id,
         targetId: target.id,
         onAllowed: "assassin-blocked",
         onFalseClaim: "assassin-hit",
@@ -585,7 +637,6 @@ export const resolveResponse = (gameState: GameState, playerId: PlayerId, respon
 export const completeAmbassadorExchange = (
   gameState: GameState,
   playerId: PlayerId,
-  oldCardId: string,
   offeredCardId: string
 ): GameState => {
   if (gameState.isPaused) return gameState;
@@ -593,12 +644,14 @@ export const completeAmbassadorExchange = (
   const exchange = gameState.ambassadorExchange;
   const player = getPlayer(gameState, playerId);
 
-  if (!exchange || exchange.playerId !== playerId || !player) return gameState;
+  if (!exchange || gameState.phase !== "ambassadorExchange" || exchange.playerId !== playerId || !player) {
+    return gameState;
+  }
 
-  const oldCard = player.cards.find((card) => card.id === oldCardId && !card.revealed);
+  const oldCard = player.cards[exchange.selectedCardIndex];
   const offeredCard = exchange.offeredCards.find((card) => card.id === offeredCardId);
 
-  if (!oldCard || !offeredCard) return gameState;
+  if (!oldCard || oldCard.revealed || !offeredCard) return gameState;
 
   const returnedCards = [
     { ...oldCard, revealed: false },
@@ -607,12 +660,15 @@ export const completeAmbassadorExchange = (
 
   let next = updatePlayer(gameState, playerId, (current) => ({
     ...current,
-    cards: current.cards.map((card) => (card.id === oldCardId ? { ...offeredCard, revealed: false } : card))
+    cards: current.cards.map((card, index) =>
+      index === exchange.selectedCardIndex ? { ...offeredCard, revealed: false } : card
+    )
   }));
 
   next = {
     ...next,
     phase: "playing",
+    pendingAmbassadorSelection: undefined,
     ambassadorExchange: undefined,
     deck: returnCardsToDeck(next.deck, returnedCards)
   };
@@ -620,14 +676,22 @@ export const completeAmbassadorExchange = (
   return nextTurn(addLog(next, `${player.name} exchanged one card with A.`));
 };
 
-export const cancelTargetSelection = (gameState: GameState): GameState =>
-  gameState.isPaused
-    ? gameState
-    : startNewSharedTimer({
+export const cancelTargetSelection = (gameState: GameState, playerId: PlayerId): GameState => {
+  if (
+    gameState.isPaused ||
+    gameState.phase !== "selectingTarget" ||
+    !gameState.targetSelection ||
+    gameState.targetSelection.actorId !== playerId
+  ) {
+    return gameState;
+  }
+
+  return startNewSharedTimer({
     ...gameState,
     phase: "playing",
     targetSelection: undefined
   });
+};
 
 export const nextTurn = (gameState: GameState): GameState => {
   const alivePlayers = gameState.players.filter((player) => !player.eliminated);
@@ -652,6 +716,7 @@ export const nextTurn = (gameState: GameState): GameState => {
       pendingCheck: undefined,
       pendingInfluenceLoss: undefined,
       targetSelection: undefined,
+      pendingAmbassadorSelection: undefined,
       ambassadorExchange: undefined
     }),
     `${nextPlayer.name}'s turn.`
@@ -777,6 +842,7 @@ const beginCheck = (
     claimantId: PlayerId;
     claimedCard: CardType;
     sourceAction: PendingActionType;
+    sourceActorId?: PlayerId;
     targetId?: PlayerId;
     onAllowed: CheckContinuation;
     onFalseClaim: CheckContinuation;
@@ -791,6 +857,7 @@ const beginCheck = (
     claimantId: options.claimantId,
     claimedCard: options.claimedCard,
     sourceAction: options.sourceAction,
+    sourceActorId: options.sourceActorId,
     targetId: options.targetId,
     eligibleCheckerIds: gameState.players
       .filter((player) => player.id !== options.claimantId && !player.eliminated)
@@ -822,9 +889,11 @@ const continueAfterCheck = (
     return startCaptainResponse(gameState, pending.claimantId, pending.targetId);
   }
   if (continuation === "captain-blocked") return nextTurn(addLog(gameState, "K was blocked."));
-  if (continuation === "captain-steal" && pending.targetId) {
-    if (!canTargetContinue(gameState, getActivePlayer(gameState).id, pending.targetId)) return nextTurn(gameState);
-    return resolveCaptainSteal(gameState, getActivePlayer(gameState).id, pending.targetId);
+  if (continuation === "captain-steal" && pending.sourceActorId && pending.targetId) {
+    const actor = getPlayer(gameState, pending.sourceActorId);
+    const target = getPlayer(gameState, pending.targetId);
+    if (!actor || actor.eliminated || !target) return nextTurn(gameState);
+    return resolveCaptainSteal(gameState, pending.sourceActorId, pending.targetId);
   }
   if (continuation === "assassin-response" && pending.targetId) {
     if (!canTargetContinue(gameState, pending.claimantId, pending.targetId)) return nextTurn(gameState);
@@ -847,7 +916,65 @@ const canTargetContinue = (gameState: GameState, actorId: PlayerId, targetId: Pl
   return Boolean(actor && target && !actor.eliminated && !target.eliminated);
 };
 
-const resolveFailedCoupAgainstRealAssassin = (
+const startAmbassadorCheck = (
+  gameState: GameState,
+  playerId: PlayerId,
+  selectedCardIndex: number
+): GameState =>
+  beginCheck(
+    {
+      ...gameState,
+      pendingAmbassadorSelection: { playerId, selectedCardIndex }
+    },
+    {
+      claimantId: playerId,
+      claimedCard: "A",
+      sourceAction: "A",
+      onAllowed: "ambassador-exchange",
+      onFalseClaim: "cancel-turn",
+      logMessage: `${getPlayer(gameState, playerId)?.name ?? "Player"} claims A.`
+    }
+  );
+
+const getLiveCardIndexes = (player: Player): number[] =>
+  player.cards.flatMap((card, index) => (card.revealed ? [] : [index]));
+
+const getRealCardForCheck = (
+  gameState: GameState,
+  pending: PendingCheck,
+  claimant: Player
+): Card | undefined => {
+  const ambassadorSelection = gameState.pendingAmbassadorSelection;
+  if (
+    pending.sourceAction === "A" &&
+    pending.claimedCard === "A" &&
+    ambassadorSelection?.playerId === claimant.id &&
+    ambassadorSelection.selectedCardIndex !== undefined
+  ) {
+    const selectedCard = claimant.cards[ambassadorSelection.selectedCardIndex];
+    return selectedCard && !selectedCard.revealed && selectedCard.type === "A" ? selectedCard : undefined;
+  }
+
+  return claimant.cards.find((card) => !card.revealed && card.type === pending.claimedCard);
+};
+
+const isAmbassadorSelectedSlotCheck = (gameState: GameState, pending: PendingCheck) => {
+  const ambassadorSelection = gameState.pendingAmbassadorSelection;
+  return Boolean(
+    pending.sourceAction === "A" &&
+      pending.claimedCard === "A" &&
+      ambassadorSelection?.playerId === pending.claimantId &&
+      ambassadorSelection.selectedCardIndex !== undefined
+  );
+};
+
+const isFalseAssassinBlockCheck = (pending: PendingCheck, claimantId: PlayerId) =>
+  pending.sourceAction === "J" &&
+  pending.claimedCard === "Q" &&
+  pending.onFalseClaim === "assassin-hit" &&
+  pending.targetId === claimantId;
+
+const resolveAssassinFullHit = (
   gameState: GameState,
   actorId: PlayerId,
   targetId: PlayerId
@@ -894,11 +1021,18 @@ const continueAfterInfluenceLoss = (gameState: GameState, pending: PendingInflue
 
 const startAmbassadorExchange = (gameState: GameState, playerId: PlayerId): GameState => {
   const player = getPlayer(gameState, playerId);
-  if (!player) return gameState;
+  const selection = gameState.pendingAmbassadorSelection;
+  if (!player || !selection || selection.playerId !== playerId || selection.selectedCardIndex === undefined) {
+    return gameState;
+  }
+
+  const selectedCard = player.cards[selection.selectedCardIndex];
+  if (!selectedCard || selectedCard.revealed) return gameState;
 
   const drawn = drawCards(gameState.deck, 2);
   const exchange: AmbassadorExchange = {
     playerId,
+    selectedCardIndex: selection.selectedCardIndex,
     offeredCards: drawn.drawn
   };
 
@@ -908,6 +1042,7 @@ const startAmbassadorExchange = (gameState: GameState, playerId: PlayerId): Game
       phase: "ambassadorExchange",
       timer: 0,
       deck: drawn.deck,
+      pendingAmbassadorSelection: undefined,
       ambassadorExchange: exchange
     },
     `${player.name} starts A exchange.`
@@ -1086,6 +1221,7 @@ const clearPending = (gameState: GameState): GameState => ({
   pendingCheck: undefined,
   pendingInfluenceLoss: undefined,
   targetSelection: undefined,
+  pendingAmbassadorSelection: undefined,
   ambassadorExchange: undefined
 });
 

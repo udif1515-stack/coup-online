@@ -14,6 +14,7 @@ import {
   resolveCheck,
   resolveResponse,
   selectAction,
+  selectAmbassadorCard,
   selectTarget,
   withSharedTimerDisplay
 } from "@/game/engine";
@@ -41,6 +42,13 @@ type GameBoardProps = {
   hostPlayerId?: PlayerId;
   onGameStateChange?: (gameState: GameState) => void | Promise<void>;
   onContinueCheck?: (playerId: PlayerId) => Promise<GameState | undefined>;
+};
+
+const getClockwiseOpponents = (players: GameState["players"], viewerId: PlayerId) => {
+  const viewerIndex = players.findIndex((player) => player.id === viewerId);
+  if (viewerIndex < 0) return players.filter((player) => player.id !== viewerId);
+
+  return Array.from({ length: players.length - 1 }, (_, offset) => players[(viewerIndex + offset + 1) % players.length]);
 };
 
 export function GameBoard({
@@ -74,13 +82,14 @@ export function GameBoard({
   const pausedByPlayer = displayGameState.players.find((player) => player.id === displayGameState.pausedByPlayerId);
   const hostPlayer = displayGameState.players.find((player) => player.id === hostPlayerId);
   const legalActions = useMemo(() => getLegalActions(displayGameState, viewer.id), [displayGameState, viewer.id]);
-  const opponents = displayGameState.players.filter((player) => player.id !== viewer.id);
+  const opponents = getClockwiseOpponents(displayGameState.players, viewer.id);
   const hasFivePlayers = displayGameState.players.length === 5;
-  const tableTopPlayer = hasFivePlayers ? undefined : opponents[0];
-  const tableTopLeftPlayer = hasFivePlayers ? opponents[0] : undefined;
-  const tableTopRightPlayer = hasFivePlayers ? opponents[1] : undefined;
-  const tableLeftPlayer = hasFivePlayers ? opponents[2] : opponents[1];
-  const tableRightPlayer = hasFivePlayers ? opponents[3] : opponents[2];
+  const hasFourPlayers = displayGameState.players.length === 4;
+  const tableTopPlayer = hasFourPlayers ? opponents[1] : undefined;
+  const tableTopLeftPlayer = hasFivePlayers ? opponents[1] : undefined;
+  const tableTopRightPlayer = hasFivePlayers ? opponents[2] : undefined;
+  const tableLeftPlayer = opponents[0];
+  const tableRightPlayer = hasFivePlayers ? opponents[3] : hasFourPlayers ? opponents[2] : opponents[1];
   const roomyOpponentCards = !hasFivePlayers;
   const visibleActionBubble =
     displayGameState.actionBubble && displayGameState.actionBubble.expiresAt > now
@@ -204,9 +213,14 @@ export function GameBoard({
     commitGameState(continueCheck(gameState, playerId));
   };
 
-  const handleExchange = (playerId: PlayerId, oldCardId: string, offeredCardId: string) => {
+  const handleAmbassadorCard = (playerId: PlayerId, selectedCardIndex: number) => {
     if (gameState.isPaused) return;
-    commitGameState(completeAmbassadorExchange(gameState, playerId, oldCardId, offeredCardId));
+    commitGameState(selectAmbassadorCard(gameState, playerId, selectedCardIndex));
+  };
+
+  const handleExchange = (playerId: PlayerId, offeredCardId: string) => {
+    if (gameState.isPaused) return;
+    commitGameState(completeAmbassadorExchange(gameState, playerId, offeredCardId));
   };
 
   const handlePause = () => {
@@ -353,7 +367,11 @@ export function GameBoard({
           </div>
         ) : null}
 
-        <TargetSelection gameState={displayGameState} onCancel={() => commitGameState(cancelTargetSelection(gameState))} />
+        <TargetSelection
+          gameState={displayGameState}
+          currentPlayerId={viewer.id}
+          onCancel={() => commitGameState(cancelTargetSelection(gameState, viewer.id))}
+        />
 
         {displayGameState.phase === "pendingBlockOrResponse" && displayGameState.pendingResponse ? (
           <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm">
@@ -451,6 +469,7 @@ export function GameBoard({
         gameState={displayGameState}
         currentPlayerId={viewer.id}
         onlineMode={onlineMode}
+        onSelectCard={handleAmbassadorCard}
         onConfirm={handleExchange}
       />
       <CheckModal
