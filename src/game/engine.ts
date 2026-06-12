@@ -485,6 +485,13 @@ export const resolveCheck = (gameState: GameState, checkerId?: PlayerId): GameSt
       ? { ...clearPendingCheck(next), pendingAmbassadorSelection: undefined }
       : clearPendingCheck(next);
 
+  if (pending.sourceAction === "A" && pending.claimedCard === "A") {
+    const selectedCard = getSelectedAmbassadorCardForCheck(gameState, pending, claimant);
+    if (selectedCard && !selectedCard.revealed && selectedCard.type !== "A") {
+      return revealSelectedFalseAmbassadorCard(nextWithoutCheck, claimant.id, selectedCard, pending);
+    }
+  }
+
   return requestInfluenceLoss(nextWithoutCheck, claimant.id, "successful_coup", {
     type: "continue-after-coup",
     pendingCheck: pending,
@@ -920,11 +927,13 @@ const startAmbassadorCheck = (
   gameState: GameState,
   playerId: PlayerId,
   selectedCardIndex: number
-): GameState =>
-  beginCheck(
+): GameState => {
+  const selectedCard = getPlayer(gameState, playerId)?.cards[selectedCardIndex];
+
+  return beginCheck(
     {
       ...gameState,
-      pendingAmbassadorSelection: { playerId, selectedCardIndex }
+      pendingAmbassadorSelection: { playerId, selectedCardIndex, selectedCardId: selectedCard?.id }
     },
     {
       claimantId: playerId,
@@ -935,6 +944,7 @@ const startAmbassadorCheck = (
       logMessage: `${getPlayer(gameState, playerId)?.name ?? "Player"} claims A.`
     }
   );
+};
 
 const getLiveCardIndexes = (player: Player): number[] =>
   player.cards.flatMap((card, index) => (card.revealed ? [] : [index]));
@@ -944,14 +954,8 @@ const getRealCardForCheck = (
   pending: PendingCheck,
   claimant: Player
 ): Card | undefined => {
-  const ambassadorSelection = gameState.pendingAmbassadorSelection;
-  if (
-    pending.sourceAction === "A" &&
-    pending.claimedCard === "A" &&
-    ambassadorSelection?.playerId === claimant.id &&
-    ambassadorSelection.selectedCardIndex !== undefined
-  ) {
-    const selectedCard = claimant.cards[ambassadorSelection.selectedCardIndex];
+  const selectedCard = getSelectedAmbassadorCardForCheck(gameState, pending, claimant);
+  if (selectedCard) {
     return selectedCard && !selectedCard.revealed && selectedCard.type === "A" ? selectedCard : undefined;
   }
 
@@ -966,6 +970,28 @@ const isAmbassadorSelectedSlotCheck = (gameState: GameState, pending: PendingChe
       ambassadorSelection?.playerId === pending.claimantId &&
       ambassadorSelection.selectedCardIndex !== undefined
   );
+};
+
+const getSelectedAmbassadorCardForCheck = (
+  gameState: GameState,
+  pending: PendingCheck,
+  claimant: Player
+): Card | undefined => {
+  const ambassadorSelection = gameState.pendingAmbassadorSelection;
+  if (
+    pending.sourceAction !== "A" ||
+    pending.claimedCard !== "A" ||
+    ambassadorSelection?.playerId !== claimant.id ||
+    ambassadorSelection.selectedCardIndex === undefined
+  ) {
+    return undefined;
+  }
+
+  const selectedById = ambassadorSelection.selectedCardId
+    ? claimant.cards.find((card) => card.id === ambassadorSelection.selectedCardId)
+    : undefined;
+
+  return selectedById ?? claimant.cards[ambassadorSelection.selectedCardIndex];
 };
 
 const isFalseAssassinBlockCheck = (pending: PendingCheck, claimantId: PlayerId) =>
@@ -1213,6 +1239,29 @@ const revealAndReplaceClaimedCard = (gameState: GameState, playerId: PlayerId, c
       cards: player.cards.map((item) => (item.id === card.id ? { ...drawn.drawn[0], revealed: false } : item))
     })
   );
+};
+
+const revealSelectedFalseAmbassadorCard = (
+  gameState: GameState,
+  playerId: PlayerId,
+  cardToReveal: Card,
+  pending: PendingCheck
+): GameState => {
+  const player = getPlayer(gameState, playerId);
+  if (!player) return gameState;
+
+  let next = updatePlayer(gameState, playerId, (current) => ({
+    ...current,
+    cards: current.cards.map((card) => (card.id === cardToReveal.id ? { ...card, revealed: true } : card))
+  }));
+
+  next = addLog(next, `${player.name} revealed ${cardToReveal.type} and lost one influence.`);
+  next = eliminatePlayerIfNeeded(next, playerId);
+  next = checkWinner(next);
+
+  if (next.phase === "gameOver") return next;
+
+  return continueAfterCheck(next, pending.onFalseClaim, pending);
 };
 
 const clearPending = (gameState: GameState): GameState => ({

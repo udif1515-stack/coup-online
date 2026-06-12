@@ -1,10 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { createLobby, joinLobby } from "@/services/onlineGameService";
 
 type LobbyMode = "create" | "join";
+const HOME_NOTICE_KEY = "coup_home_notice";
 
 export default function HomePage() {
   const router = useRouter();
@@ -12,8 +13,17 @@ export default function HomePage() {
   const [name, setName] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
+
+  useEffect(() => {
+    const nextNotice = window.sessionStorage.getItem(HOME_NOTICE_KEY);
+    if (!nextNotice) return;
+
+    window.sessionStorage.removeItem(HOME_NOTICE_KEY);
+    setNotice(nextNotice);
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -43,6 +53,7 @@ export default function HomePage() {
   const chooseMode = (nextMode: LobbyMode) => {
     setMode(nextMode);
     setError(undefined);
+    setNotice(undefined);
     setName("");
     setRoomCode("");
   };
@@ -164,6 +175,8 @@ export default function HomePage() {
             INSTRUCTIONS
           </button>
         </div>
+
+        {notice ? <p className="mt-5 rounded-lg bg-amber-50 p-3 text-sm font-bold text-amber-800">{notice}</p> : null}
 
         {mode ? (
           <form onSubmit={handleSubmit} className="mt-5 rounded-xl border-2 border-slate-950 bg-white p-4 shadow-sm">

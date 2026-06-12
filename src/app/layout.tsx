@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Bluff Table",
-  description: "A local-first mobile bluffing card game prototype."
+  title: "COUP",
+  description: "A local-first mobile COUP card game prototype."
 };
 
 export const viewport: Viewport = {

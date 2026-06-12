@@ -146,6 +146,7 @@ export type AmbassadorExchange = {
 export type PendingAmbassadorSelection = {
   playerId: PlayerId;
   selectedCardIndex?: number;
+  selectedCardId?: string;
 };
 
 export type GameState = {

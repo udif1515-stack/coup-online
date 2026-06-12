@@ -7,12 +7,16 @@ import {
   getPlayers,
   OnlineAppState,
   OnlinePlayer,
+  removePlayerFromLobby,
   startOnlineGame,
   subscribeAppState,
   subscribePlayers,
   unsubscribe
 } from "@/services/onlineGameService";
-import { getStoredPlayerId, getStoredRoomCode, getStoredRoomId } from "@/services/playerSession";
+import { clearStoredPlayerId, getStoredPlayerId, getStoredRoomCode, getStoredRoomId } from "@/services/playerSession";
+
+const REMOVED_FROM_ROOM_MESSAGE = "You were removed from the room by the host.";
+const HOME_NOTICE_KEY = "coup_home_notice";
 
 export default function LobbyPage() {
   const router = useRouter();
@@ -24,9 +28,11 @@ export default function LobbyPage() {
   const [copiedCode, setCopiedCode] = useState(false);
   const [error, setError] = useState<string>();
   const [isStarting, setIsStarting] = useState(false);
+  const [removingPlayerId, setRemovingPlayerId] = useState<string>();
 
   const hostPlayerId = appState?.host_player_id ?? players.find((player) => player.is_host)?.id;
   const isCurrentHost = Boolean(playerId && hostPlayerId === playerId);
+  const canRemovePlayers = Boolean(isCurrentHost && appState?.status === "lobby");
   const canStart = Boolean(isCurrentHost && players.length >= 3 && players.length <= 5);
   const winCounts = appState?.game_state_json?.winCounts ?? {};
   const hasScoreboard = players.some((player) => (winCounts[player.id] ?? 0) > 0);
@@ -52,6 +58,13 @@ export default function LobbyPage() {
 
       setPlayers(nextPlayers);
       setAppState(nextAppState);
+
+      if (!nextPlayers.some((nextPlayer) => nextPlayer.id === storedId)) {
+        window.sessionStorage.setItem(HOME_NOTICE_KEY, REMOVED_FROM_ROOM_MESSAGE);
+        clearStoredPlayerId();
+        router.replace("/");
+        return;
+      }
 
       if (nextAppState.status === "playing") router.replace("/game");
     };
@@ -107,6 +120,22 @@ export default function LobbyPage() {
     window.setTimeout(() => setCopiedCode(false), 1200);
   };
 
+  const handleRemovePlayer = async (targetPlayerId: string) => {
+    setError(undefined);
+    setRemovingPlayerId(targetPlayerId);
+
+    try {
+      if (!playerId) throw new Error("Could not find your player session");
+      if (!roomId) throw new Error("Could not find your room");
+
+      await removePlayerFromLobby(roomId, targetPlayerId, playerId);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not remove player");
+    } finally {
+      setRemovingPlayerId(undefined);
+    }
+  };
+
   return (
     <main className="min-h-dvh bg-[#f4efe5] px-5 py-6 text-slate-950">
       <div className="mx-auto max-w-md">
@@ -139,9 +168,21 @@ export default function LobbyPage() {
                     </p>
                     <p className="text-xs font-bold uppercase text-slate-500">Seat {player.seat_index + 1}</p>
                   </div>
-                  {player.id === hostPlayerId ? (
-                    <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-800">Host</span>
-                  ) : null}
+                  <div className="flex items-center gap-2">
+                    {player.id === hostPlayerId ? (
+                      <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-800">Host</span>
+                    ) : null}
+                    {canRemovePlayers && player.id !== playerId && player.id !== hostPlayerId ? (
+                      <button
+                        type="button"
+                        disabled={removingPlayerId === player.id}
+                        onClick={() => handleRemovePlayer(player.id)}
+                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700 active:scale-95 disabled:opacity-50"
+                      >
+                        {removingPlayerId === player.id ? "Removing" : "Remove"}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               ))
             )}

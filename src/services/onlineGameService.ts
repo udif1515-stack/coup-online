@@ -297,6 +297,36 @@ export const returnToLobbyForNextRound = async (roomId: string, requesterPlayerI
   if (error) throw error;
 };
 
+export const removePlayerFromLobby = async (
+  roomId: string,
+  targetPlayerId: string,
+  requesterPlayerId: string
+) => {
+  const supabase = getSupabaseClient();
+  const room = await getAppState(roomId);
+
+  if (room.status !== "lobby") throw new Error("Players can only be removed before the game starts");
+  if (room.host_player_id !== requesterPlayerId) throw new Error("Only the host can remove players");
+  if (targetPlayerId === requesterPlayerId) throw new Error("The host cannot remove themself");
+  if (targetPlayerId === room.host_player_id) throw new Error("The host cannot be removed");
+
+  const target = await getPlayer(targetPlayerId, roomId);
+  if (!target) throw new Error("Player is not in this room");
+
+  const { data, error } = await supabase
+    .from("players")
+    .delete()
+    .eq("id", targetPlayerId)
+    .eq("room_id", roomId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw new Error("Player was not removed");
+
+  await touchRoom(roomId);
+};
+
 export const updateOnlineGameState = async (roomId: string, gameState: GameState, status?: OnlineStatus) => {
   const supabase = getSupabaseClient();
   const { error } = await supabase
