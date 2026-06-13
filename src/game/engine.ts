@@ -761,9 +761,11 @@ export const requestInfluenceLoss = (
 
     next = addLog(next, `${player.name} revealed ${cardToReveal.type} and lost one influence.`);
     next = eliminatePlayerIfNeeded(next, playerId);
-    next = checkWinner(next);
 
-    if (next.phase === "gameOver") return next;
+    if (!shouldCompleteCaptainStealAfterTargetEliminated(pendingInfluenceLoss, playerId)) {
+      next = checkWinner(next);
+      if (next.phase === "gameOver") return next;
+    }
 
     return continueAfterInfluenceLoss(next, pendingInfluenceLoss);
   }
@@ -892,6 +894,12 @@ const continueAfterCheck = (
 ): GameState => {
   if (continuation === "ambassador-exchange") return startAmbassadorExchange(gameState, pending.claimantId);
   if (continuation === "captain-response" && pending.targetId) {
+    const actor = getPlayer(gameState, pending.claimantId);
+    const target = getPlayer(gameState, pending.targetId);
+    if (!actor || actor.eliminated || !target) return nextTurn(gameState);
+    if (target.eliminated && pending.sourceAction === "K" && pending.claimedCard === "K") {
+      return resolveCaptainSteal(gameState, pending.claimantId, pending.targetId);
+    }
     if (!canTargetContinue(gameState, pending.claimantId, pending.targetId)) return nextTurn(gameState);
     return startCaptainResponse(gameState, pending.claimantId, pending.targetId);
   }
@@ -922,6 +930,16 @@ const canTargetContinue = (gameState: GameState, actorId: PlayerId, targetId: Pl
   const target = getPlayer(gameState, targetId);
   return Boolean(actor && target && !actor.eliminated && !target.eliminated);
 };
+
+const shouldCompleteCaptainStealAfterTargetEliminated = (
+  pending: PendingInfluenceLoss,
+  playerId: PlayerId
+): boolean =>
+  pending.afterResolve.type === "continue-after-coup" &&
+  pending.afterResolve.continuation === "captain-response" &&
+  pending.afterResolve.pendingCheck.sourceAction === "K" &&
+  pending.afterResolve.pendingCheck.claimedCard === "K" &&
+  pending.afterResolve.pendingCheck.targetId === playerId;
 
 const startAmbassadorCheck = (
   gameState: GameState,
